@@ -554,7 +554,7 @@ RCT_REMAP_METHOD(print, portName:(NSString *)portName
             BOOL diffusion = ([[command valueForKey:@"diffusion"] boolValue] == NO) ? NO : YES;
             BOOL bothScale = ([[command valueForKey:@"bothScale"] boolValue]  == NO) ? NO : YES;
             SCBBitmapConverterRotation rotation = [self getBitmapConverterRotation:[command valueForKey:@"rotation"]];
-            NSString *fontName = ([command valueForKey:@"font"]) ? [command valueForKey:@"font"] : @"Monospace";
+            NSString *fontName = ([command valueForKey:@"font"]) ? [command valueForKey:@"font"] : @"Menlo";
             NSInteger fontSize = ([command valueForKey:@"fontSize"]) ? [[command valueForKey:@"fontSize"] intValue] : 12;
 
             UIFont *font = [UIFont fontWithName:fontName size:fontSize * 2];
