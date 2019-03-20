@@ -143,8 +143,6 @@ RCT_REMAP_METHOD(connect, portName:(NSString *)portName
                                                                 portName:portName
                                                             portSettings:portSettings
                                                          ioTimeoutMillis:10000];
-                StarIoExtBcrModel Model = StarIoExtBcrModelPOP1; //barcodeReader
-                ISCPConnectParser *bcrConnector = [StarIoExt createBcrConnectParser:Model]//barcodeReader
             } else {
                 _printerManager = [[StarIoExtManager alloc] initWithType:StarIoExtManagerTypeStandard
                                                                 portName:portName
