@@ -559,16 +559,17 @@ RCT_REMAP_METHOD(print, portName:(NSString *)portName
 
             UIFont *font = [UIFont fontWithName:fontName size:fontSize * 2];
             UIImage *image = [self imageWithString:text font:font width:width];
+            NSInteger imgWidth = image.size.width;
 
             if([command valueForKey:@"absolutePosition"]){
                 int position = ([[command valueForKey:@"absolutePosition"] intValue]) ? [[command valueForKey:@"absolutePosition"] intValue]: 40;
-                [builder appendBitmapWithAbsolutePosition:image diffusion:diffusion width:width bothScale:bothScale rotation:rotation position:position];
+                [builder appendBitmapWithAbsolutePosition:image diffusion:diffusion width:imgWidth bothScale:bothScale rotation:rotation position:position];
             }
             else if ([command valueForKey:@"alignment"]){
                 SCBAlignmentPosition alignment = [self getAlignment:[command valueForKey:@"alignment"]];
-                [builder appendBitmapWithAlignment:image diffusion:diffusion width:width bothScale:bothScale rotation:rotation position:alignment];
+                [builder appendBitmapWithAlignment:image diffusion:diffusion width:imgWidth bothScale:bothScale rotation:rotation position:alignment];
             }
-            else [builder appendBitmap:image diffusion:diffusion width:width bothScale:bothScale rotation:rotation];
+            else [builder appendBitmap:image diffusion:diffusion width:imgWidth bothScale:bothScale rotation:rotation];
 
             // [builder appendBitmap:image diffusion:NO];
         }
