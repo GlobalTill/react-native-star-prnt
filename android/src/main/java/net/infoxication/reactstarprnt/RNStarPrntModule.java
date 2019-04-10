@@ -570,7 +570,7 @@ public class RNStarPrntModule extends ReactContextBaseJavaModule {
                 ContentResolver contentResolver = context.getContentResolver();
                 String uriString = command.getString("appendBitmap");
 
-                Pattern p = compile("^([A-Za-z0-9+/]{4})*([A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{2}==)?$");
+                Pattern p = Pattern.compile("^([A-Za-z0-9+/]{4})*([A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{2}==)?$");
                 Matcher m = p.matcher(uriString);
 
                 boolean diffusion = (command.hasKey("diffusion")) ? command.getBoolean("diffusion") : true;
