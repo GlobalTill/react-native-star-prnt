@@ -16,6 +16,8 @@ import android.provider.MediaStore;
 import android.support.annotation.Nullable;
 import android.text.StaticLayout;
 import android.text.Layout;
+import android.util.Base64;
+import android.graphics.BitmapFactory;
 
 import com.facebook.common.util.ExceptionWithNoStacktrace;
 import com.facebook.react.bridge.Dynamic;
@@ -41,6 +43,8 @@ import java.util.Locale;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import com.facebook.react.modules.core.DeviceEventManagerModule;
 import com.starmicronics.stario.PortInfo;
@@ -562,8 +566,13 @@ public class RNStarPrntModule extends ReactContextBaseJavaModule {
                     builder.appendQrCodeWithAlignment(command.getString("appendQrCode").getBytes(encoding), qrCodeModel, qrCodeLevel, cell, alignmentPosition);
                 }else builder.appendQrCode(command.getString("appendQrCode").getBytes(encoding), qrCodeModel, qrCodeLevel, cell);
             } else if (command.hasKey("appendBitmap")){
+
                 ContentResolver contentResolver = context.getContentResolver();
                 String uriString = command.getString("appendBitmap");
+
+                Pattern p = compile("^([A-Za-z0-9+/]{4})*([A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{2}==)?$");
+                Matcher m = p.matcher(uriString);
+
                 boolean diffusion = (command.hasKey("diffusion")) ? command.getBoolean("diffusion") : true;
                 int width = (command.hasKey("width")) ? command.getInt("width") : 576;
                 boolean bothScale = (command.hasKey("bothScale")) ? command.getBoolean("bothScale") : true;
@@ -571,6 +580,10 @@ public class RNStarPrntModule extends ReactContextBaseJavaModule {
                 try {
                     Uri imageUri =  Uri.parse(uriString);
                     Bitmap bitmap = MediaStore.Images.Media.getBitmap(contentResolver, imageUri);
+                    if (m.matches()) {
+                      byte[] decodedString = Base64.decode(uriString,Base64.DEFAULT);
+                      bitmap = BitmapFactory.decodeByteArray(decodedString, 0, decodedString.length);
+                    }
                     if(command.hasKey("absolutePosition")){
                         int position =  command.getInt("absolutePosition");
                         builder.appendBitmapWithAbsolutePosition(bitmap, diffusion, width, bothScale, rotation, position);
