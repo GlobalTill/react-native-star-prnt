@@ -555,9 +555,12 @@ RCT_REMAP_METHOD(print, portName:(NSString *)portName
             }
             else [builder appendBitmap:image diffusion:diffusion width:width bothScale:bothScale rotation:rotation];
         }
-        else if ([command valueForKey:@"appendBitmapText"]) {
-            NSString *text = [command valueForKey:@"appendBitmapText"];
+        else if ([command valueForKey:@"appendRasterText"]) {
+            NSString *text = [command valueForKey:@"appendRasterText"];
             NSInteger width = ([command valueForKey:@"width"]) ? [[command valueForKey:@"width"] intValue] : 576;
+            BOOL diffusion = ([[command valueForKey:@"diffusion"] boolValue] == NO) ? NO : YES;
+            BOOL bothScale = ([[command valueForKey:@"bothScale"] boolValue]  == NO) ? NO : YES;
+            SCBBitmapConverterRotation rotation = [self getBitmapConverterRotation:[command valueForKey:@"rotation"]];
             NSString *fontName = ([command valueForKey:@"font"]) ? [command valueForKey:@"font"] : @"Menlo";
             NSInteger fontSize = ([command valueForKey:@"fontSize"]) ? [[command valueForKey:@"fontSize"] intValue] : 12;
             BOOL bothScale = ([[command valueForKey:@"bothScale"] boolValue]  == NO) ? NO : YES;
@@ -565,12 +568,19 @@ RCT_REMAP_METHOD(print, portName:(NSString *)portName
 
             UIFont *font = [UIFont fontWithName:fontName size:fontSize * 2];
             UIImage *image = [self imageWithString:text font:font width:width];
+            NSInteger imgWidth = image.size.width;
 
-            if ([command valueForKey:@"alignment"]){
-                SCBAlignmentPosition alignment = [self getAlignment:[command valueForKey:@"alignment"]];
-                [builder appendBitmapWithAlignment:image diffusion:NO width:width bothScale:bothScale rotation:rotation position:alignment];
+            if([command valueForKey:@"absolutePosition"]){
+                int position = ([[command valueForKey:@"absolutePosition"] intValue]) ? [[command valueForKey:@"absolutePosition"] intValue]: 40;
+                [builder appendBitmapWithAbsolutePosition:image diffusion:diffusion width:imgWidth bothScale:bothScale rotation:rotation position:position];
             }
-            else [builder appendBitmap:image diffusion:NO];
+            else if ([command valueForKey:@"alignment"]){
+                SCBAlignmentPosition alignment = [self getAlignment:[command valueForKey:@"alignment"]];
+                [builder appendBitmapWithAlignment:image diffusion:diffusion width:imgWidth bothScale:bothScale rotation:rotation position:alignment];
+            }
+            else [builder appendBitmap:image diffusion:diffusion width:imgWidth bothScale:bothScale rotation:rotation];
+
+            // [builder appendBitmap:image diffusion:NO];
         }
     }
     
