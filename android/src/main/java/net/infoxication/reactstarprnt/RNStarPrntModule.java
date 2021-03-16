@@ -4,11 +4,17 @@ package net.infoxication.reactstarprnt;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.Rect;
+import android.graphics.Typeface;
 import android.net.Uri;
 import android.provider.MediaStore;
-import android.support.annotation.Nullable;
+import androidx.annotation.NonNull;
 import android.text.StaticLayout;
 import android.text.Layout;
+import android.text.TextPaint;
 import android.util.Base64;
 import android.graphics.BitmapFactory;
 
@@ -59,423 +65,423 @@ import org.json.JSONException;
 
 public class RNStarPrntModule extends ReactContextBaseJavaModule {
 
-  private final ReactApplicationContext reactContext;
-  private StarIoExtManager starIoExtManager;
+    private final ReactApplicationContext reactContext;
+    private StarIoExtManager starIoExtManager;
 
-  public RNStarPrntModule(ReactApplicationContext reactContext) {
-    super(reactContext);
-    this.reactContext = reactContext;
-  }
+    public RNStarPrntModule(ReactApplicationContext reactContext) {
+        super(reactContext);
+        this.reactContext = reactContext;
+    }
 
-  @Override
-  public String getName() {
-    return "RNStarPrnt";
-  }
+    @Override
+    public String getName() {
+        return "RNStarPrnt";
+    }
 
-  @ReactMethod
-  public void portDiscovery(final String strInterface, final Promise promise) {
-    new Thread(new Runnable() {
-      public void run() {
+    @ReactMethod
+    public void portDiscovery(final String strInterface, final Promise promise) {
+        new Thread(new Runnable() {
+            public void run() {
 
-        WritableArray result = new WritableNativeArray();
-        try {
+                WritableArray result = new WritableNativeArray();
+                try {
 
-          if (strInterface.equals("LAN")) {
-            result = getPortDiscovery("LAN");
-          } else if (strInterface.equals("Bluetooth")) {
-            result = getPortDiscovery("Bluetooth");
-          } else if (strInterface.equals("USB")) {
-            result = getPortDiscovery("USB");
-          } else {
-            result = getPortDiscovery("All");
-          }
+                    if (strInterface.equals("LAN")) {
+                        result = getPortDiscovery("LAN");
+                    } else if (strInterface.equals("Bluetooth")) {
+                        result = getPortDiscovery("Bluetooth");
+                    } else if (strInterface.equals("USB")) {
+                        result = getPortDiscovery("USB");
+                    } else {
+                        result = getPortDiscovery("All");
+                    }
 
-        } catch (StarIOPortException exception) {
-          promise.reject("PORT_DISCOVERY_ERROR", exception);
+                } catch (StarIOPortException exception) {
+                    promise.reject("PORT_DISCOVERY_ERROR", exception);
 
-        } finally {
-          promise.resolve(result);
-        }
+                } finally {
+                    promise.resolve(result);
+                }
 
-      }
-    }).start();
-  }
+            }
+        }).start();
+    }
 
-  @ReactMethod
-  public void checkStatus(final String portName, final String emulation, final Promise promise) {
-    new Thread(new Runnable() {
-      public void run() {
+    @ReactMethod
+    public void checkStatus(final String portName, final String emulation, final Promise promise) {
+        new Thread(new Runnable() {
+            public void run() {
+
+                String portSettings = getPortSettingsOption(emulation);
+
+                StarIOPort port = null;
+                try {
+
+                    port = StarIOPort.getPort(portName, portSettings, 10000, getReactApplicationContext());
+
+                    // A sleep is used to get time for the socket to completely open
+                    try {
+                        Thread.sleep(500);
+                    } catch (InterruptedException e) {
+                    }
+
+                    StarPrinterStatus status;
+                    Map<String, String> firmwareInformationMap = port.getFirmwareInformation();
+                    status = port.retreiveStatus();
+
+
+                    WritableNativeMap json = new WritableNativeMap();
+                    json.putBoolean("offline", status.offline);
+                    json.putBoolean("coverOpen", status.coverOpen);
+                    json.putBoolean("cutterError", status.cutterError);
+                    json.putBoolean("receiptPaperEmpty", status.receiptPaperEmpty);
+                    json.putString("ModelName", firmwareInformationMap.get("ModelName"));
+                    json.putString("FirmwareVersion", firmwareInformationMap.get("FirmwareVersion"));
+
+                    promise.resolve(json);
+
+
+                } catch (StarIOPortException e) {
+                    promise.reject("CHECK_STATUS_ERROR", e);
+                } finally {
+
+                    if (port != null) {
+                        try {
+                            StarIOPort.releasePort(port);
+                        } catch (StarIOPortException e) {
+                            promise.reject("CHECK_STATUS_ERROR", e.getMessage());
+                        }
+                    }
+
+                }
+
+            }
+        }).start();
+    }
+
+    @ReactMethod
+    public void connect(final String portName, final String emulation, final Boolean hasBarcodeReader, final Promise promise) {
+        Context context = getCurrentActivity();
 
         String portSettings = getPortSettingsOption(emulation);
+        if (starIoExtManager != null && starIoExtManager.getPort() != null) {
+            starIoExtManager.disconnect(new IConnectionCallback() {
+                @Override
+                public void onConnected(ConnectResult connectResult) {
+                    // Do nothing
+                }
+
+                @Override
+                public void onDisconnected() {
+                    //Do nothing
+                }
+            });
+        }
+        starIoExtManager = new StarIoExtManager(hasBarcodeReader ? StarIoExtManager.Type.WithBarcodeReader : StarIoExtManager.Type.Standard, portName, portSettings, 10000, context);
+        starIoExtManager.setListener(starIoExtManagerListener);
+
+        new Thread(new Runnable() {
+            public void run() {
+
+                if (starIoExtManager != null) starIoExtManager.connect(new IConnectionCallback() {
+                    @Override
+                    public void onConnected(ConnectResult connectResult) {
+                        if (connectResult == ConnectResult.Success || connectResult == ConnectResult.AlreadyConnected) {
+
+                            promise.resolve("Printer Connected");
+
+                        } else {
+                            promise.reject("CONNECT_ERROR", "Error Connecting to the printer");
+                        }
+                    }
+
+                    @Override
+                    public void onDisconnected() {
+                        //Do nothing
+                    }
+                });
+
+            }
+        }).start();
+    }
+
+    @ReactMethod
+    public void disconnect(final Promise promise) {
+        new Thread(new Runnable() {
+            public void run() {
+                if (starIoExtManager != null && starIoExtManager.getPort() != null) {
+                    starIoExtManager.disconnect(new IConnectionCallback() {
+                        @Override
+                        public void onConnected(ConnectResult connectResult) {
+                            // nothing
+                        }
+
+                        @Override
+                        public void onDisconnected() {
+                            //sendEvent("printerOffline", null);
+                            starIoExtManager.setListener(null); //remove the listener?
+                            promise.resolve("Printer Disconnected");
+                        }
+                    });
+                } else {
+                    promise.resolve("No printers connected");
+                }
+
+            }
+        }).start();
+    }
+
+    @ReactMethod
+    public void print(final String portName, String emulation, final ReadableArray printCommands, final Promise promise) {
+
+        final String portSettings = getPortSettingsOption(emulation);
+        final Emulation _emulation = getEmulation(emulation);
+        final Context context = getCurrentActivity();
+
+        new Thread(new Runnable() {
+            public void run() {
+
+                ICommandBuilder builder = StarIoExt.createCommandBuilder(_emulation);
+
+                builder.beginDocument();
+
+                appendCommands(builder, printCommands, context);
+
+                builder.endDocument();
+
+                byte[] commands = builder.getCommands();
+
+                if (portName == "null") { // use StarIOExtManager
+                    sendCommand(commands, starIoExtManager.getPort(), promise);
+
+                } else {//use StarIOPort
+                    sendCommand(context, portName, portSettings, commands, promise);
+                }
+            }
+
+        }).start();
+    }
+
+    private Emulation getEmulation(String emulation) {
+
+        if (emulation.equals("StarPRNT")) return Emulation.StarPRNT;
+        else if (emulation.equals("StarPRNTL")) return Emulation.StarPRNTL;
+        else if (emulation.equals("StarLine")) return Emulation.StarLine;
+        else if (emulation.equals("StarGraphic")) return Emulation.StarGraphic;
+        else if (emulation.equals("EscPos")) return Emulation.EscPos;
+        else if (emulation.equals("EscPosMobile")) return Emulation.EscPosMobile;
+        else if (emulation.equals("StarDotImpact")) return Emulation.StarDotImpact;
+        else return Emulation.StarLine;
+    }
+
+    ;
+
+    private WritableArray getPortDiscovery(String interfaceName) throws StarIOPortException {
+        List<PortInfo> BTPortList;
+        List<PortInfo> TCPPortList;
+        List<PortInfo> USBPortList;
+
+        final ArrayList<PortInfo> arrayDiscovery = new ArrayList<PortInfo>();
+
+        WritableArray arrayPorts = new WritableNativeArray();
+
+
+        if (interfaceName.equals("Bluetooth") || interfaceName.equals("All")) {
+            BTPortList = StarIOPort.searchPrinter("BT:");
+
+            for (PortInfo portInfo : BTPortList) {
+                arrayDiscovery.add(portInfo);
+            }
+        }
+        if (interfaceName.equals("LAN") || interfaceName.equals("All")) {
+            TCPPortList = StarIOPort.searchPrinter("TCP:");
+
+            for (PortInfo portInfo : TCPPortList) {
+                arrayDiscovery.add(portInfo);
+            }
+        }
+        if (interfaceName.equals("USB") || interfaceName.equals("All")) {
+            try {
+                USBPortList = StarIOPort.searchPrinter("USB:", getReactApplicationContext());
+            } catch (StarIOPortException e) {
+                USBPortList = new ArrayList<PortInfo>();
+            }
+            for (PortInfo portInfo : USBPortList) {
+                arrayDiscovery.add(portInfo);
+            }
+        }
+
+        for (PortInfo discovery : arrayDiscovery) {
+            String portName;
+
+            WritableMap port = new WritableNativeMap();
+            if (discovery.getPortName().startsWith("BT:"))
+                port.putString("portName", "BT:" + discovery.getMacAddress());
+            else port.putString("portName", discovery.getPortName());
+
+            if (!discovery.getMacAddress().equals("")) {
+
+                port.putString("macAddress", discovery.getMacAddress());
+
+                if (discovery.getPortName().startsWith("BT:")) {
+                    port.putString("modelName", discovery.getPortName());
+                } else if (!discovery.getModelName().equals("")) {
+                    port.putString("modelName", discovery.getModelName());
+                }
+            } else if (interfaceName.equals("USB") || interfaceName.equals("All")) {
+                if (!discovery.getModelName().equals("")) {
+                    port.putString("modelName", discovery.getModelName());
+                }
+                if (!discovery.getUSBSerialNumber().equals(" SN:")) {
+                    port.putString("USBSerialNumber", discovery.getUSBSerialNumber());
+                }
+            }
+
+            arrayPorts.pushMap(port);
+        }
+
+        return arrayPorts;
+    }
+
+    private String getPortSettingsOption(String emulation) { // generate the portsettings depending on the emulation type
+
+        String portSettings = "";
+
+        if (emulation.equals("EscPosMobile")) portSettings += "mini";
+        else if (emulation.equals("EscPos")) portSettings += "escpos";
+        else //StarLine, StarGraphic, StarDotImpact
+            if (emulation.equals("StarPRNT") || emulation.equals("StarPRNTL")) {
+                portSettings += "Portable";
+                portSettings += ";l"; //retry on
+            } else portSettings += "";
+        return portSettings;
+    }
+
+    private boolean sendCommand(byte[] commands, StarIOPort port, Promise promise) {
+
+        try {
+            /*
+             * using StarIOPort3.1.jar (support USB Port) Android OS Version: upper 2.2
+             */
+            try {
+                Thread.sleep(200);
+            } catch (InterruptedException e) {
+            }
+            if (port == null) { //Not connected or port closed
+                promise.reject("STARIO_PORT_EXCEPTION", "Unable to Open Port, Please Connect to the printer before sending commands");
+                return false;
+            }
+
+            /*
+             * Using Begin / End Checked Block method When sending large amounts of raster data,
+             * adjust the value in the timeout in the "StarIOPort.getPort" in order to prevent
+             * "timeout" of the "endCheckedBlock method" while a printing.
+             *
+             * If receipt print is success but timeout error occurs(Show message which is "There
+             * was no response of the printer within the timeout period." ), need to change value
+             * of timeout more longer in "StarIOPort.getPort" method.
+             * (e.g.) 10000 -> 30000
+             */
+            StarPrinterStatus status;
+
+            status = port.beginCheckedBlock();
+
+            if (status.offline) {
+                //sendEvent("printerOffline", null);
+                throw new StarIOPortException("A printer is offline");
+                //callbackContext.error("The printer is offline");
+            }
+
+            port.writePort(commands, 0, commands.length);
+
+            port.setEndCheckedBlockTimeoutMillis(30000);// Change the timeout time of endCheckedBlock method.
+
+            status = port.endCheckedBlock();
+
+            if (status.coverOpen) {
+                promise.reject("STARIO_PORT_EXCEPTION", "Cover open");
+                //sendEvent("printerCoverOpen", null);
+                return false;
+            } else if (status.receiptPaperEmpty) {
+                promise.reject("STARIO_PORT_EXCEPTION", "Empty paper");
+                //sendEvent("printerPaperEmpty", null);
+                return false;
+            } else if (status.offline) {
+                promise.reject("STARIO_PORT_EXCEPTION", "Printer offline");
+                //sendEvent("printerOffline", null);
+                return false;
+            }
+            promise.resolve("Success!");
+
+        } catch (StarIOPortException e) {
+            //sendEvent("printerImpossible", e.getMessage());
+            promise.reject("STARIO_PORT_EXCEPTION", e.getMessage());
+            return false;
+        } finally {
+            return true;
+        }
+    }
+
+    private boolean sendCommand(Context context, String portName, String portSettings, byte[] commands, Promise promise) {
 
         StarIOPort port = null;
         try {
-
-          port = StarIOPort.getPort(portName, portSettings, 10000, getReactApplicationContext());
-
-          // A sleep is used to get time for the socket to completely open
-          try {
-            Thread.sleep(500);
-          } catch (InterruptedException e) {
-          }
-
-          StarPrinterStatus status;
-          Map<String, String> firmwareInformationMap = port.getFirmwareInformation();
-          status = port.retreiveStatus();
-
-
-          WritableNativeMap json = new WritableNativeMap();
-          json.putBoolean("offline", status.offline);
-          json.putBoolean("coverOpen", status.coverOpen);
-          json.putBoolean("cutterError", status.cutterError);
-          json.putBoolean("receiptPaperEmpty", status.receiptPaperEmpty);
-          json.putString("ModelName", firmwareInformationMap.get("ModelName"));
-          json.putString("FirmwareVersion", firmwareInformationMap.get("FirmwareVersion"));
-
-          promise.resolve(json);
-
-
-        } catch (StarIOPortException e) {
-          promise.reject("CHECK_STATUS_ERROR", e);
-        } finally {
-
-          if (port != null) {
+            /*
+             * using StarIOPort3.1.jar (support USB Port) Android OS Version: upper 2.2
+             */
+            port = StarIOPort.getPort(portName, portSettings, 10000, context);
             try {
-              StarIOPort.releasePort(port);
-            } catch (StarIOPortException e) {
-              promise.reject("CHECK_STATUS_ERROR", e.getMessage());
-            }
-          }
-
-        }
-
-      }
-    }).start();
-  }
-
-  @ReactMethod
-  public void connect(final String portName, final String emulation, final Boolean hasBarcodeReader, final Promise promise) {
-    Context context = getCurrentActivity();
-
-    String portSettings = getPortSettingsOption(emulation);
-    if (starIoExtManager != null && starIoExtManager.getPort() != null) {
-      starIoExtManager.disconnect(new IConnectionCallback() {
-        @Override
-        public void onConnected(ConnectResult connectResult) {
-          // Do nothing
-        }
-
-        @Override
-        public void onDisconnected() {
-          //Do nothing
-        }
-      });
-    }
-    starIoExtManager = new StarIoExtManager(hasBarcodeReader ? StarIoExtManager.Type.WithBarcodeReader : StarIoExtManager.Type.Standard, portName, portSettings, 10000, context);
-    starIoExtManager.setListener(starIoExtManagerListener);
-
-    new Thread(new Runnable() {
-      public void run() {
-
-        if (starIoExtManager != null) starIoExtManager.connect(new IConnectionCallback() {
-          @Override
-          public void onConnected(ConnectResult connectResult) {
-            if (connectResult == ConnectResult.Success || connectResult == ConnectResult.AlreadyConnected) {
-
-              promise.resolve("Printer Connected");
-
-            } else {
-              promise.reject("CONNECT_ERROR", "Error Connecting to the printer");
-            }
-          }
-
-          @Override
-          public void onDisconnected() {
-            //Do nothing
-          }
-        });
-
-      }
-    }).start();
-  }
-
-  @ReactMethod
-  public void disconnect(final Promise promise) {
-    new Thread(new Runnable() {
-      public void run() {
-        if (starIoExtManager != null && starIoExtManager.getPort() != null) {
-          starIoExtManager.disconnect(new IConnectionCallback() {
-            @Override
-            public void onConnected(ConnectResult connectResult) {
-              // nothing
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
             }
 
-            @Override
-            public void onDisconnected() {
-              //sendEvent("printerOffline", null);
-              starIoExtManager.setListener(null); //remove the listener?
-              promise.resolve("Printer Disconnected");
+            /*
+             * Using Begin / End Checked Block method When sending large amounts of raster data,
+             * adjust the value in the timeout in the "StarIOPort.getPort" in order to prevent
+             * "timeout" of the "endCheckedBlock method" while a printing.
+             *
+             * If receipt print is success but timeout error occurs(Show message which is "There
+             * was no response of the printer within the timeout period." ), need to change value
+             * of timeout more longer in "StarIOPort.getPort" method.
+             * (e.g.) 10000 -> 30000
+             */
+            StarPrinterStatus status = port.beginCheckedBlock();
+
+            if (status.offline) {
+                //throw new StarIOPortException("A printer is offline");
+                throw new StarIOPortException("A printer is offline");
             }
-          });
-        } else {
-          promise.resolve("No printers connected");
-        }
 
-      }
-    }).start();
-  }
-
-  @ReactMethod
-  public void print(final String portName, String emulation, final ReadableArray printCommands, final Promise promise) {
-
-    final String portSettings = getPortSettingsOption(emulation);
-    final Emulation _emulation = getEmulation(emulation);
-    final Context context = getCurrentActivity();
-
-    new Thread(new Runnable() {
-      public void run() {
-
-        ICommandBuilder builder = StarIoExt.createCommandBuilder(_emulation);
-
-        builder.beginDocument();
-
-        appendCommands(builder, printCommands, context);
-
-        builder.endDocument();
-
-        byte[] commands = builder.getCommands();
-
-        if (portName == "null") { // use StarIOExtManager
-          sendCommand(commands, starIoExtManager.getPort(), promise);
-
-        } else {//use StarIOPort
-          sendCommand(context, portName, portSettings, commands, promise);
-        }
-      }
-
-    }).start();
-  }
-
-  private Emulation getEmulation(String emulation) {
-
-    if (emulation.equals("StarPRNT")) return Emulation.StarPRNT;
-    else if (emulation.equals("StarPRNTL")) return Emulation.StarPRNTL;
-    else if (emulation.equals("StarLine")) return Emulation.StarLine;
-    else if (emulation.equals("StarGraphic")) return Emulation.StarGraphic;
-    else if (emulation.equals("EscPos")) return Emulation.EscPos;
-    else if (emulation.equals("EscPosMobile")) return Emulation.EscPosMobile;
-    else if (emulation.equals("StarDotImpact")) return Emulation.StarDotImpact;
-    else return Emulation.StarLine;
-  }
-
-  ;
-
-  private WritableArray getPortDiscovery(String interfaceName) throws StarIOPortException {
-    List<PortInfo> BTPortList;
-    List<PortInfo> TCPPortList;
-    List<PortInfo> USBPortList;
-
-    final ArrayList<PortInfo> arrayDiscovery = new ArrayList<PortInfo>();
-
-    WritableArray arrayPorts = new WritableNativeArray();
+            port.writePort(commands, 0, commands.length);
 
 
-    if (interfaceName.equals("Bluetooth") || interfaceName.equals("All")) {
-      BTPortList = StarIOPort.searchPrinter("BT:");
+            port.setEndCheckedBlockTimeoutMillis(30000);// Change the timeout time of endCheckedBlock method.
+            status = port.endCheckedBlock();
 
-      for (PortInfo portInfo : BTPortList) {
-        arrayDiscovery.add(portInfo);
-      }
-    }
-    if (interfaceName.equals("LAN") || interfaceName.equals("All")) {
-      TCPPortList = StarIOPort.searchPrinter("TCP:");
+            if (status.coverOpen) {
+                promise.reject("STARIO_PORT_EXCEPTION", "Cover open");
+                return false;
+            } else if (status.receiptPaperEmpty) {
+                promise.reject("STARIO_PORT_EXCEPTION", "Empty paper");
+                return false;
+            } else if (status.offline) {
+                promise.reject("STARIO_PORT_EXCEPTION", "Printer offline");
+                return false;
+            }
+            promise.resolve("Success!");
 
-      for (PortInfo portInfo : TCPPortList) {
-        arrayDiscovery.add(portInfo);
-      }
-    }
-    if (interfaceName.equals("USB") || interfaceName.equals("All")) {
-      try {
-        USBPortList = StarIOPort.searchPrinter("USB:", getReactApplicationContext());
-      } catch (StarIOPortException e) {
-        USBPortList = new ArrayList<PortInfo>();
-      }
-      for (PortInfo portInfo : USBPortList) {
-        arrayDiscovery.add(portInfo);
-      }
-    }
-
-    for (PortInfo discovery : arrayDiscovery) {
-      String portName;
-
-      WritableMap port = new WritableNativeMap();
-      if (discovery.getPortName().startsWith("BT:"))
-        port.putString("portName", "BT:" + discovery.getMacAddress());
-      else port.putString("portName", discovery.getPortName());
-
-      if (!discovery.getMacAddress().equals("")) {
-
-        port.putString("macAddress", discovery.getMacAddress());
-
-        if (discovery.getPortName().startsWith("BT:")) {
-          port.putString("modelName", discovery.getPortName());
-        } else if (!discovery.getModelName().equals("")) {
-          port.putString("modelName", discovery.getModelName());
-        }
-      } else if (interfaceName.equals("USB") || interfaceName.equals("All")) {
-        if (!discovery.getModelName().equals("")) {
-          port.putString("modelName", discovery.getModelName());
-        }
-        if (!discovery.getUSBSerialNumber().equals(" SN:")) {
-          port.putString("USBSerialNumber", discovery.getUSBSerialNumber());
-        }
-      }
-
-      arrayPorts.pushMap(port);
-    }
-
-    return arrayPorts;
-  }
-
-  private String getPortSettingsOption(String emulation) { // generate the portsettings depending on the emulation type
-
-    String portSettings = "";
-
-    if (emulation.equals("EscPosMobile")) portSettings += "mini";
-    else if (emulation.equals("EscPos")) portSettings += "escpos";
-    else //StarLine, StarGraphic, StarDotImpact
-      if (emulation.equals("StarPRNT") || emulation.equals("StarPRNTL")) {
-        portSettings += "Portable";
-        portSettings += ";l"; //retry on
-      } else portSettings += "";
-    return portSettings;
-  }
-
-  private boolean sendCommand(byte[] commands, StarIOPort port, Promise promise) {
-
-    try {
-			/*
-			 * using StarIOPort3.1.jar (support USB Port) Android OS Version: upper 2.2
-			 */
-      try {
-        Thread.sleep(200);
-      } catch (InterruptedException e) {
-      }
-      if (port == null) { //Not connected or port closed
-        promise.reject("STARIO_PORT_EXCEPTION", "Unable to Open Port, Please Connect to the printer before sending commands");
-        return false;
-      }
-
-			/*
-			 * Using Begin / End Checked Block method When sending large amounts of raster data,
-			 * adjust the value in the timeout in the "StarIOPort.getPort" in order to prevent
-			 * "timeout" of the "endCheckedBlock method" while a printing.
-			 *
-			 * If receipt print is success but timeout error occurs(Show message which is "There
-			 * was no response of the printer within the timeout period." ), need to change value
-			 * of timeout more longer in "StarIOPort.getPort" method.
-			 * (e.g.) 10000 -> 30000
-			 */
-      StarPrinterStatus status;
-
-      status = port.beginCheckedBlock();
-
-      if (status.offline) {
-        //sendEvent("printerOffline", null);
-        throw new StarIOPortException("A printer is offline");
-        //callbackContext.error("The printer is offline");
-      }
-
-      port.writePort(commands, 0, commands.length);
-
-      port.setEndCheckedBlockTimeoutMillis(30000);// Change the timeout time of endCheckedBlock method.
-
-      status = port.endCheckedBlock();
-
-      if (status.coverOpen) {
-        promise.reject("STARIO_PORT_EXCEPTION", "Cover open");
-        //sendEvent("printerCoverOpen", null);
-        return false;
-      } else if (status.receiptPaperEmpty) {
-        promise.reject("STARIO_PORT_EXCEPTION", "Empty paper");
-        //sendEvent("printerPaperEmpty", null);
-        return false;
-      } else if (status.offline) {
-        promise.reject("STARIO_PORT_EXCEPTION", "Printer offline");
-        //sendEvent("printerOffline", null);
-        return false;
-      }
-      promise.resolve("Success!");
-
-    } catch (StarIOPortException e) {
-      //sendEvent("printerImpossible", e.getMessage());
-      promise.reject("STARIO_PORT_EXCEPTION", e.getMessage());
-      return false;
-    } finally {
-      return true;
-    }
-  }
-
-  private boolean sendCommand(Context context, String portName, String portSettings, byte[] commands, Promise promise) {
-
-    StarIOPort port = null;
-    try {
-			/*
-			 * using StarIOPort3.1.jar (support USB Port) Android OS Version: upper 2.2
-			 */
-      port = StarIOPort.getPort(portName, portSettings, 10000, context);
-      try {
-        Thread.sleep(100);
-      } catch (InterruptedException e) {
-      }
-
-			/*
-			 * Using Begin / End Checked Block method When sending large amounts of raster data,
-			 * adjust the value in the timeout in the "StarIOPort.getPort" in order to prevent
-			 * "timeout" of the "endCheckedBlock method" while a printing.
-			 *
-			 * If receipt print is success but timeout error occurs(Show message which is "There
-			 * was no response of the printer within the timeout period." ), need to change value
-			 * of timeout more longer in "StarIOPort.getPort" method.
-			 * (e.g.) 10000 -> 30000
-			 */
-      StarPrinterStatus status = port.beginCheckedBlock();
-
-      if (status.offline) {
-        //throw new StarIOPortException("A printer is offline");
-        throw new StarIOPortException("A printer is offline");
-      }
-
-      port.writePort(commands, 0, commands.length);
-
-
-      port.setEndCheckedBlockTimeoutMillis(30000);// Change the timeout time of endCheckedBlock method.
-      status = port.endCheckedBlock();
-
-      if (status.coverOpen) {
-        promise.reject("STARIO_PORT_EXCEPTION", "Cover open");
-        return false;
-      } else if (status.receiptPaperEmpty) {
-        promise.reject("STARIO_PORT_EXCEPTION", "Empty paper");
-        return false;
-      } else if (status.offline) {
-        promise.reject("STARIO_PORT_EXCEPTION", "Printer offline");
-        return false;
-      }
-      promise.resolve("Success!");
-
-    } catch (StarIOPortException e) {
-      promise.reject("STARIO_PORT_EXCEPTION", e.getMessage());
-    } finally {
-      if (port != null) {
-        try {
-          StarIOPort.releasePort(port);
         } catch (StarIOPortException e) {
+            promise.reject("STARIO_PORT_EXCEPTION", e.getMessage());
+        } finally {
+            if (port != null) {
+                try {
+                    StarIOPort.releasePort(port);
+                } catch (StarIOPortException e) {
+                }
+            }
+            return true;
         }
-      }
-      return true;
     }
-  }
     private void appendCommands(ICommandBuilder builder, ReadableArray printCommands, Context context) {
         Charset encoding = Charset.forName("US-ASCII");
         for (int i = 0; i < printCommands.size(); i++) {
@@ -510,7 +516,7 @@ public class RNStarPrntModule extends ReactContextBaseJavaModule {
                 }
             }else if (command.hasKey("appendRawBytes")) {
                 ReadableArray rawBytesArray = command.getArray("appendRawBytes");
-                    if (rawBytesArray != null ) {
+                if (rawBytesArray != null ) {
                     byte[] rawByteData = new byte[rawBytesArray.size()+1];
                     for(int j=0; j < rawBytesArray.size(); j++){
                         rawByteData[j] = (byte)rawBytesArray.getInt(j);
@@ -584,8 +590,8 @@ public class RNStarPrntModule extends ReactContextBaseJavaModule {
                     Uri imageUri =  Uri.parse(uriString);
                     Bitmap bitmap = MediaStore.Images.Media.getBitmap(contentResolver, imageUri);
                     if (m.matches()) {
-                      byte[] decodedString = Base64.decode(uriString,Base64.DEFAULT);
-                      bitmap = BitmapFactory.decodeByteArray(decodedString, 0, decodedString.length);
+                        byte[] decodedString = Base64.decode(uriString,Base64.DEFAULT);
+                        bitmap = BitmapFactory.decodeByteArray(decodedString, 0, decodedString.length);
                     }
                     if(command.hasKey("absolutePosition")){
                         int position =  command.getInt("absolutePosition");
@@ -599,24 +605,24 @@ public class RNStarPrntModule extends ReactContextBaseJavaModule {
                 }
             } else if (command.hasKey("appendRasterText")){
 
-              int fontSize = (command.hasKey("fontSize")) ? command.getInt("fontSize") : 25;
-              boolean diffusion = (command.hasKey("diffusion")) ? command.getBoolean("diffusion") : true;
-              int width = (command.hasKey("width")) ? command.getInt("width") : 576;
-              boolean bothScale = (command.hasKey("bothScale")) ? command.getBoolean("bothScale") : true;
+                int fontSize = (command.hasKey("fontSize")) ? command.getInt("fontSize") : 25;
+                boolean diffusion = (command.hasKey("diffusion")) ? command.getBoolean("diffusion") : true;
+                int width = (command.hasKey("width")) ? command.getInt("width") : 576;
+                boolean bothScale = (command.hasKey("bothScale")) ? command.getBoolean("bothScale") : true;
 
-              String text = command.getString("appendRasterText");
-              Typeface typeface = Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL);
+                String text = command.getString("appendRasterText");
+                Typeface typeface = Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL);
 
-              Bitmap bitmap = createBitmapFromText(text, fontSize, width, typeface);
+                Bitmap bitmap = createBitmapFromText(text, fontSize, width, typeface);
 
-              ICommandBuilder.BitmapConverterRotation rotation = (command.hasKey("rotation")) ? getConverterRotation(command.getString("rotation")) : getConverterRotation("Normal");
-              if(command.hasKey("absolutePosition")){
-                  int position =  command.getInt("absolutePosition");
-                  builder.appendBitmapWithAbsolutePosition(bitmap, diffusion, width, bothScale, rotation, position);
-              }else if(command.hasKey("alignment")){
-                  ICommandBuilder.AlignmentPosition alignmentPosition = getAlignment(command.getString("alignment"));
-                  builder.appendBitmapWithAlignment(bitmap, diffusion, width, bothScale, rotation, alignmentPosition);
-              }else builder.appendBitmap(bitmap, diffusion, width, bothScale, rotation);
+                ICommandBuilder.BitmapConverterRotation rotation = (command.hasKey("rotation")) ? getConverterRotation(command.getString("rotation")) : getConverterRotation("Normal");
+                if(command.hasKey("absolutePosition")){
+                    int position =  command.getInt("absolutePosition");
+                    builder.appendBitmapWithAbsolutePosition(bitmap, diffusion, width, bothScale, rotation, position);
+                }else if(command.hasKey("alignment")){
+                    ICommandBuilder.AlignmentPosition alignmentPosition = getAlignment(command.getString("alignment"));
+                    builder.appendBitmapWithAlignment(bitmap, diffusion, width, bothScale, rotation, alignmentPosition);
+                }else builder.appendBitmap(bitmap, diffusion, width, bothScale, rotation);
             }
         }
     };
@@ -828,33 +834,13 @@ public class RNStarPrntModule extends ReactContextBaseJavaModule {
     };
 
     private Bitmap createBitmapFromText(String printText, int textSize, int printWidth, Typeface typeface) {
-      Paint paint = new Paint();
-      Bitmap bitmap;
-      Canvas canvas;
-
-      paint.setTextSize(textSize);
-      paint.setTypeface(typeface);
-
-      paint.getTextBounds(printText, 0, printText.length(), new Rect());
-
-      TextPaint textPaint = new TextPaint(paint);
-      android.text.StaticLayout staticLayout = new StaticLayout(printText, textPaint, printWidth, Layout.Alignment.ALIGN_NORMAL, 1, 0, false);
-
-      // Create bitmap
-      bitmap = Bitmap.createBitmap(staticLayout.getWidth(), staticLayout.getHeight(), Bitmap.Config.ARGB_8888);
-
-      // Create canvas
-      canvas = new Canvas(bitmap);
-      canvas.drawColor(Color.WHITE);
-      canvas.translate(0, 0);
-      staticLayout.draw(canvas);
-
-      return bitmap;
-    }
-
+        Paint paint = new Paint();
+        Bitmap bitmap;
+        Canvas canvas;
 
         paint.setTextSize(textSize);
         paint.setTypeface(typeface);
+
         paint.getTextBounds(printText, 0, printText.length(), new Rect());
 
         TextPaint textPaint = new TextPaint(paint);
@@ -871,7 +857,6 @@ public class RNStarPrntModule extends ReactContextBaseJavaModule {
 
         return bitmap;
     }
-
 
     private StarIoExtManagerListener starIoExtManagerListener = new StarIoExtManagerListener() {
         @Override
@@ -946,7 +931,5 @@ public class RNStarPrntModule extends ReactContextBaseJavaModule {
         }
 
     };
-
-
 
 }
